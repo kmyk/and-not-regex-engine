@@ -4,7 +4,10 @@ use std::env;
 use std::mem::swap;
 use std::str::Chars;
 use std::iter::Peekable;
+use std::collections::HashMap;
+use std::collections::HashSet;
 
+#[derive(Clone)]
 enum AST {
     Epsilon,
     Letter(char),
@@ -14,6 +17,19 @@ enum AST {
     Seq(Box<AST>, Box<AST>),
     And(Box<AST>, Box<AST>),
     Or(Box<AST>, Box<AST>),
+}
+
+#[derive(Clone)]
+struct DFA {
+    edges: HashMap<(i32, char), i32>,
+    accepted: HashSet<i32>,
+    size: i32,
+}
+
+#[derive(Clone)]
+struct NFA {
+    dfa: DFA,
+    epsilon: HashMap<i32, Vec<i32>>,
 }
 
 fn parse_regular_expression_atom(s: &mut Peekable<Chars>) -> Box<AST> {
@@ -105,6 +121,25 @@ fn parse_regular_expression(input: &str) -> Box<AST> {
     return a;
 }
 
+fn compile_nondeterministic_finite_automaton(ast: &Box<AST>) -> NFA {
+    return NFA {
+        dfa: DFA {
+            edges: HashMap::new(),
+            accepted: HashSet::new(),
+            size: 1,
+        },
+        epsilon: HashMap::new(),
+    };
+}
+
+fn compile_deterministic_finite_automaton(nfa: &NFA) -> DFA {
+    return nfa.dfa.clone();
+}
+
+fn decompile_deterministic_finite_automaton(dfa: &DFA) -> Box<AST> {
+    return Box::new(AST::Epsilon);
+}
+
 fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
     fn paren(s: String, x: i8, y: i8) -> String {
         if x <= y { s } else { "(".to_string() + s.as_str() + ")" }
@@ -148,10 +183,10 @@ fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
 fn do_work(input: &str) {
     println!("input:  {}", input);
     let ast = parse_regular_expression(&input);
-    // let dfa = compile_deterministic_finite_automaton(ast);
-    // let ast2 = decompile_deterministic_finite_automaton(dfa);
-    let ast2 = ast;
-    let (output, _) = format_regular_expression(&ast2);
+    let nfa = compile_nondeterministic_finite_automaton(&ast);
+    let dfa = compile_deterministic_finite_automaton(&nfa);
+    let ast = decompile_deterministic_finite_automaton(&dfa);
+    let (output, _) = format_regular_expression(&ast);
     println!("output: {}", output);
 }
 
