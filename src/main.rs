@@ -7,35 +7,48 @@ use std::iter::Peekable;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+/// Full (Regular) Regular Expression
 #[derive(Clone)]
-enum AST {
+enum FRRE {
     Epsilon,
     Letter(char),
+    // Class(CharClass),
     Dot,
-    Star(Box<AST>),
-    Not(Box<AST>),
-    Seq(Box<AST>, Box<AST>),
-    And(Box<AST>, Box<AST>),
-    Or(Box<AST>, Box<AST>),
+    Star(Box<FRRE>),
+    // Plus(Box<FRRE>),
+    // Question(Box<FRRE>),
+    Not(Box<FRRE>),
+    Seq(Box<FRRE>, Box<FRRE>),
+    And(Box<FRRE>, Box<FRRE>),
+    Or(Box<FRRE>, Box<FRRE>),
+}
+
+/// (Regular part of) Basic Regular Expression
+#[derive(Clone)]
+enum RBRE {
+    Epsilon,
+    Letter(char),
+    // Class(CharClass),
+    Dot,
+    Star(Box<RBRE>),
+    Plus(Box<RBRE>),
+    Question(Box<RBRE>),
+    Seq(Box<RBRE>, Box<RBRE>),
+    Or(Box<RBRE>, Box<RBRE>),
 }
 
 #[derive(Clone)]
 struct DFA {
-    edges: HashMap<(i32, char), i32>,
-    accepted: HashSet<i32>,
-    size: i32,
 }
 
 #[derive(Clone)]
 struct NFA {
-    dfa: DFA,
-    epsilon: HashMap<i32, Vec<i32>>,
 }
 
-fn parse_regular_expression_atom(s: &mut Peekable<Chars>) -> Box<AST> {
+fn parse_regular_expression_atom(s: &mut Peekable<Chars>) -> Box<FRRE> {
     match s.peek() {
         None => {
-            return Box::new(AST::Epsilon);
+            return Box::new(FRRE::Epsilon);
         }
         Some(c) if c == &')' || c == &'*' || c == &'&' || c == &'|' => {
             panic!();
@@ -49,20 +62,20 @@ fn parse_regular_expression_atom(s: &mut Peekable<Chars>) -> Box<AST> {
             b
         }
         '.' => {
-            Box::new(AST::Dot)
+            Box::new(FRRE::Dot)
         }
         c => {
-            Box::new(AST::Letter(c))
+            Box::new(FRRE::Letter(c))
         }
     };
     loop {
         if s.peek() == Some(&'*') {
-            a = Box::new(AST::Star(a));
+            a = Box::new(FRRE::Star(a));
             s.next();
             continue;
         }
         if s.peek() == Some(&'~') {
-            a = Box::new(AST::Not(a));
+            a = Box::new(FRRE::Not(a));
             s.next();
             continue;
         }
@@ -71,13 +84,13 @@ fn parse_regular_expression_atom(s: &mut Peekable<Chars>) -> Box<AST> {
     return a;
 }
 
-fn parse_regular_expression_root(s: &mut Peekable<Chars>) -> Box<AST>  {
-    fn bump(a: &mut Option<Box<AST>>, b: &mut Option<Box<AST>>, op: fn(Box<AST>, Box<AST>) -> AST) {
+fn parse_regular_expression_root(s: &mut Peekable<Chars>) -> Box<FRRE>  {
+    fn bump(a: &mut Option<Box<FRRE>>, b: &mut Option<Box<FRRE>>, op: fn(Box<FRRE>, Box<FRRE>) -> FRRE) {
         let mut a1 = None;
         let mut b1 = None;
         swap(&mut a1, a);
         swap(&mut b1, b);
-        let b2 = b1.unwrap_or(Box::new(AST::Epsilon));
+        let b2 = b1.unwrap_or(Box::new(FRRE::Epsilon));
         a1 = Some(
             match a1 {
                 None => { b2 }
@@ -95,84 +108,81 @@ fn parse_regular_expression_root(s: &mut Peekable<Chars>) -> Box<AST>  {
                 break;
             }
             Some('|') => {
-                bump(&mut b, &mut c, AST::And);
-                bump(&mut a, &mut b, AST::Or);
+                bump(&mut b, &mut c, FRRE::And);
+                bump(&mut a, &mut b, FRRE::Or);
                 s.next();
             }
             Some('&') => {
-                bump(&mut b, &mut c, AST::And);
+                bump(&mut b, &mut c, FRRE::And);
                 s.next();
             }
             Some(_) => {
                 let d = parse_regular_expression_atom(s);
-                bump(&mut c, &mut Some(d), AST::Seq);
+                bump(&mut c, &mut Some(d), FRRE::Seq);
             }
         }
     }
-    bump(&mut b, &mut c, AST::And);
-    bump(&mut a, &mut b, AST::Or);
+    bump(&mut b, &mut c, FRRE::And);
+    bump(&mut a, &mut b, FRRE::Or);
     return a.unwrap();
 }
 
-fn parse_regular_expression(input: &str) -> Box<AST> {
+fn parse_regular_expression(input: &str) -> Box<FRRE> {
     let mut s = input.chars().peekable();
     let a = parse_regular_expression_root(&mut s);
     assert!(s.peek().is_none());
     return a;
 }
 
-fn compile_nondeterministic_finite_automaton(ast: &Box<AST>) -> NFA {
-    return NFA {
-        dfa: DFA {
-            edges: HashMap::new(),
-            accepted: HashSet::new(),
-            size: 1,
-        },
-        epsilon: HashMap::new(),
-    };
+fn compile_nondeterministic_finite_automaton(ast: &Box<FRRE>) -> NFA {
+    panic!();
 }
 
 fn compile_deterministic_finite_automaton(nfa: &NFA) -> DFA {
-    return nfa.dfa.clone();
+    panic!();
 }
 
-fn decompile_deterministic_finite_automaton(dfa: &DFA) -> Box<AST> {
-    return Box::new(AST::Epsilon);
+fn minimize_deterministic_finite_automaton(dfa: &DFA) -> DFA {
+    panic!();
 }
 
-fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
+fn decompile_deterministic_finite_automaton(dfa: &DFA) -> Box<FRRE> {
+    panic!();
+}
+
+fn format_regular_expression(ast: &Box<FRRE>) -> (String, i8) {
     fn paren(s: String, x: i8, y: i8) -> String {
         if x <= y { s } else { "(".to_string() + s.as_str() + ")" }
     }
     match &**ast {
-        AST::Epsilon => {
+        FRRE::Epsilon => {
             ("".to_string(), 0)
         }
-        AST::Letter(c) => {
+        FRRE::Letter(c) => {
             (c.to_string(), 0)
         }
-        AST::Dot => {
+        FRRE::Dot => {
             (".".to_string(), 0)
         }
-        AST::Star(a) => {
+        FRRE::Star(a) => {
             let (s, x) = format_regular_expression(&a);
             (paren(s, x, 0) + "*", 0)
         }
-        AST::Not(a) => {
+        FRRE::Not(a) => {
             let (s, x) = format_regular_expression(&a);
             (paren(s, x, 0) + "~", 0)
         }
-        AST::Seq(a, b) => {
+        FRRE::Seq(a, b) => {
             let (s, x) = format_regular_expression(&a);
             let (t, y) = format_regular_expression(&b);
             (paren(s, x, 1) + paren(t, y, 1).as_str(), 1)
         }
-        AST::And(a, b) => {
+        FRRE::And(a, b) => {
             let (s, x) = format_regular_expression(&a);
             let (t, y) = format_regular_expression(&b);
             (paren(s, x, 2) + "&" + paren(t, y, 2).as_str(), 2)
         }
-        AST::Or(a, b) => {
+        FRRE::Or(a, b) => {
             let (s, x) = format_regular_expression(&a);
             let (t, y) = format_regular_expression(&b);
             (paren(s, x, 3) + "|" + paren(t, y, 3).as_str(), 3)
@@ -183,9 +193,10 @@ fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
 fn do_work(input: &str) {
     println!("input:  {}", input);
     let ast = parse_regular_expression(&input);
-    let nfa = compile_nondeterministic_finite_automaton(&ast);
-    let dfa = compile_deterministic_finite_automaton(&nfa);
-    let ast = decompile_deterministic_finite_automaton(&dfa);
+    // let nfa = compile_nondeterministic_finite_automaton(&ast);
+    // let dfa = compile_deterministic_finite_automaton(&nfa);
+    // let dfa = minimize_deterministic_finite_automaton(&dfa);
+    // let ast = decompile_deterministic_finite_automaton(&dfa);
     let (output, _) = format_regular_expression(&ast);
     println!("output: {}", output);
 }
