@@ -14,6 +14,7 @@ use char_class::CharClass;
 #[derive(Clone, Debug)]
 enum AST {
     Empty,
+    Universe,
     Epsilon,
     Literal(CharClass),
     Star(Box<AST>),
@@ -184,7 +185,8 @@ fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
         }
     }
     match &**ast {
-        AST::Empty => ("\\_".to_string(), 1),
+        AST::Empty => ("\\0".to_string(), 0),
+        AST::Universe => ("\\1".to_string(), 0),
         AST::Epsilon => ("".to_string(), 1),
         AST::Literal(cls) => (cls.to_string(), 0),
         AST::Star(a) => {
@@ -224,6 +226,7 @@ fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
 fn contains_epsilon_as_element(ast: &Box<AST>) -> bool {
     match &**ast {
         AST::Empty => false,
+        AST::Universe => true,
         AST::Epsilon => true,
         AST::Literal(_) => false,
         AST::Star(_) => true,
@@ -239,12 +242,15 @@ fn contains_epsilon_as_element(ast: &Box<AST>) -> bool {
 fn differentiate_regular_expression(ast: Box<AST>, c: char) -> Box<AST> {
     match *ast {
         AST::Empty => Box::new(AST::Empty),
+        AST::Universe => Box::new(AST::Universe),
         AST::Epsilon => Box::new(AST::Empty),
-        AST::Literal(cls) => Box::new(if cls.contains(c) {
-            AST::Epsilon
-        } else {
-            AST::Empty
-        }),
+        AST::Literal(cls) => {
+            if cls.contains(c) {
+                Box::new(AST::Epsilon)
+            } else {
+                Box::new(AST::Empty)
+            }
+        }
         AST::Star(a) => {
             let da = differentiate_regular_expression(a.clone(), c);
             Box::new(AST::Seq(da, Box::new(AST::Star(a))))
@@ -254,9 +260,7 @@ fn differentiate_regular_expression(ast: Box<AST>, c: char) -> Box<AST> {
             Box::new(AST::Seq(da, Box::new(AST::Star(a))))
         }
         AST::Question(a) => differentiate_regular_expression(a, c),
-        AST::Not(_) => {
-            panic!();
-        }
+        AST::Not(a) => Box::new(AST::Not(differentiate_regular_expression(a, c))),
         AST::Seq(a, b) => {
             let has_epsilon = contains_epsilon_as_element(&a);
             let da = differentiate_regular_expression(a, c);
