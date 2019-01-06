@@ -1,7 +1,10 @@
 use std::cmp::{max, min};
+use std::collections::HashSet;
+use std::mem::swap;
 
 #[derive(Clone)]
 #[derive(Eq)]
+#[derive(Hash)]
 #[derive(Ord)]
 #[derive(PartialEq)]
 #[derive(PartialOrd)]
@@ -211,35 +214,94 @@ impl ToString for CharClass {
         } else if len == std::char::MAX as usize {
             return ".".to_string();
 
-        } else if len < (std::char::MAX as usize) / 2 {
-            /// TODO: fix a problem on '^', '-' and ']'
-            let mut s = String::new();
-            s.push('[');
-            for (l, r) in &self.ranges {
-                s.push(std::char::from_u32(*l).unwrap());
-                if r - l >= 2 {
-                    s.push('-');
-                    s.push(std::char::from_u32(*r - 1).unwrap());
-                }
-            }
-            s.push(']');
-            return s;
-
         } else {
-            /// TODO: fix a problem on '^', '-' and ']'
+            let is_complement = len > (std::char::MAX as usize) / 2;
+            let mut has_close = false;
+            let mut has_hat = false;
+            let mut has_hyphen = false;
+            let mut touch = |c: u32| -> bool {
+                if c == '[' as u32 {
+                    has_close = true;
+                } else if c == '^' as u32 {
+                    has_hat = true;
+                } else if c == '-' as u32 {
+                    has_hyphen = true;
+                } else {
+                    return false;
+                }
+                return true;
+            };
             let mut s = String::new();
-            s.push_str("[^");
-            for (l, r) in &self.complement().ranges {
-                s.push(std::char::from_u32(*l).unwrap());
-                if r - l >= 2 {
+            let complement = self.complement();
+            let iter = (if is_complement { complement.ranges.iter() } else { self.ranges.iter() }).cloned();
+            for (l, r) in iter {
+                let mut l = l;
+                let mut r = r;
+                if touch(l) {
+                    l += 1;
+                }
+                if l == r {
+                    continue;
+                }
+                if touch(r - 1) {
+                    r -= 1;
+                }
+                if l == r {
+                    continue;
+                }
+                let len = r - l;
+                let l = std::char::from_u32(l).unwrap();
+                let r = std::char::from_u32(r - 1).unwrap();
+                s.push(l);
+                if len >= 3 {
                     s.push('-');
-                    s.push(std::char::from_u32(*r - 1).unwrap());
+                }
+                if len >= 2 {
+                    s.push(r);
                 }
             }
-            s.push(']');
-            return s;
+            if s.is_empty() && !has_close && has_hat && has_hyphen {
+                return "[-^]".to_string();
+            }
+            let mut t = String::new();
+            t.push('[');
+            if is_complement {
+                t.push('^');
+            }
+            if has_close {
+                t.push(']');
+            }
+            t.push_str(&s);
+            if has_hat {
+                t.push('^');
+            }
+            if has_hyphen {
+                t.push('-');
+            }
+            t.push(']');
+            return t;
         }
     }
+}
+
+pub fn discriminate(clss: &Vec<CharClass>) -> HashSet<CharClass> {
+    let mut cur = HashSet::new();
+    let mut prv = HashSet::new();
+    for cls in clss.iter() {
+        if cur.is_empty() {
+            cur.insert(cls.clone());
+        } else {
+            swap(&mut cur, &mut prv);
+            cur.clear();
+            let cls_comp = cls.complement();
+            for it in &prv {
+                cur.insert(it.intersection(&cls));
+                cur.insert(it.intersection(&cls_comp));
+            }
+        }
+    }
+    cur.remove(&CharClass::new());
+    return cur;
 }
 
 #[test]
@@ -265,7 +327,6 @@ fn it_works() {
     assert!(a.contains('f'));
     assert!(a.contains('z'));
 
-
     let b = a.complement();
     assert_eq!(b.to_string(), "[^a-cfx-z]");
     assert!(!b.contains('c'));
@@ -279,4 +340,16 @@ fn it_works() {
     assert_eq!(a.to_string(), "[a-z]");
     assert_eq!(a.ranges.len(), 1);
     assert_eq!(a.len(), 26);
+
+    a.insert('^');
+    assert_eq!(a.to_string(), "[a-z^]");
+    assert_eq!(a.complement().to_string(), "[^a-z^]");
+
+    a.insert(']');
+    assert_eq!(a.to_string(), "[]a-z^]");
+    assert_eq!(a.complement().to_string(), "[^]a-z^]");
+
+    a.insert('-');
+    assert_eq!(a.to_string(), "[]a-z^-]");
+    assert_eq!(a.complement().to_string(), "[^]a-z^-]");
 }
