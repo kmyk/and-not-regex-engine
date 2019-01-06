@@ -12,6 +12,7 @@ mod char_class;
 use char_class::CharClass;
 
 #[derive(Clone)]
+#[derive(Debug)]
 enum AST {
     Empty,
     Epsilon,
@@ -44,7 +45,7 @@ impl<'a> Iterator for TokenSeq<'a> {
     fn next(&mut self) -> Option<Token> {
         match self.chars.next() {
             None => {
-                return None;
+                None
             }
             Some('\\') => {
                 match self.chars.next() {
@@ -52,14 +53,14 @@ impl<'a> Iterator for TokenSeq<'a> {
                         panic!("Trailing backslash");
                     }
                     Some(c) => {
-                        return Some(Token::Quoted(c));
+                        Some(Token::Quoted(c))
                     }
                 }
             }
             Some('[') => {
                 match char_class::parse_char_class(&mut self.chars) {
                     Ok(cls) => {
-                        return Some(Token::Class(cls));
+                        Some(Token::Class(cls))
                     }
                     Err(msg) => {
                         panic!(msg);
@@ -67,7 +68,7 @@ impl<'a> Iterator for TokenSeq<'a> {
                 }
             }
             Some(c) => {
-                return Some(Token::Bare(c));
+                Some(Token::Bare(c))
             }
         }
     }
@@ -161,7 +162,7 @@ fn parse_regular_expression_root(tokens: &mut Peekable<TokenSeq>) -> Box<AST>  {
     let mut c = None;
     loop {
         match tokens.peek() {
-            None | Some(Token::Bare(')')) => {
+            None | Some(Token::Quoted(')')) => {
                 break;
             }
             Some(Token::Quoted('|')) => {
@@ -240,11 +241,87 @@ fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
     }
 }
 
-fn do_work(input: &str) {
+fn contains_epsilon_as_element(ast: &Box<AST>) -> bool {
+    match &**ast {
+        AST::Empty => { false }
+        AST::Epsilon => { true }
+        AST::Literal(_) => { false }
+        AST::Star(_) => { true }
+        AST::Plus(a) => { contains_epsilon_as_element(a) }
+        AST::Question(_) => { true }
+        AST::Not(a) => { !contains_epsilon_as_element(a) }
+        AST::Seq(a, b) => { contains_epsilon_as_element(a) && contains_epsilon_as_element(b) }
+        AST::And(a, b) => { contains_epsilon_as_element(a) && contains_epsilon_as_element(b) }
+        AST::Or(a, b) => { contains_epsilon_as_element(a) || contains_epsilon_as_element(b) }
+    }
+}
+
+fn differentiate_regular_expression(ast: Box<AST>, c: char) -> Box<AST> {
+    match *ast {
+        AST::Empty => {
+            Box::new(AST::Empty)
+        }
+        AST::Epsilon => {
+            Box::new(AST::Empty)
+        }
+        AST::Literal(cls) => {
+            Box::new(if cls.contains(c) { AST::Epsilon } else { AST::Empty })
+        }
+        AST::Star(a) => {
+            let da = differentiate_regular_expression(a.clone(), c);
+            Box::new(AST::Seq(da, Box::new(AST::Star(a))))
+        }
+        AST::Plus(a) => {
+            let da = differentiate_regular_expression(a.clone(), c);
+            Box::new(AST::Seq(da, Box::new(AST::Star(a))))
+        }
+        AST::Question(a) => {
+            differentiate_regular_expression(a, c)
+        }
+        AST::Not(_) => {
+            panic!();
+        }
+        AST::Seq(a, b) => {
+            let has_epsilon = contains_epsilon_as_element(&a);
+            let da = differentiate_regular_expression(a, c);
+            if has_epsilon {
+                let db = differentiate_regular_expression(b.clone(), c);
+                let da_b = Box::new(AST::Seq(da, b));
+                Box::new(AST::Or(da_b, db))
+            } else {
+                Box::new(AST::Seq(da, b))
+            }
+        }
+        AST::And(a, b) => {
+            let da = differentiate_regular_expression(a, c);
+            let db = differentiate_regular_expression(b, c);
+            Box::new(AST::And(da, db))
+        }
+        AST::Or(a, b) => {
+            let da = differentiate_regular_expression(a, c);
+            let db = differentiate_regular_expression(b, c);
+            Box::new(AST::Or(da, db))
+        }
+    }
+}
+
+fn match_regular_expression(ast: &Box<AST>, text: &str) -> bool {
+    let mut ast: Box<AST> = ast.clone();
+    for c in text.chars() {
+        ast = differentiate_regular_expression(ast, c);
+        let (s, _) = format_regular_expression(&ast);
+        println!("differentiated: {}", s);
+    }
+    return contains_epsilon_as_element(&ast);
+}
+
+fn do_work(input: &str, text: &str) {
     println!("input:  {}", input);
     let ast = parse_regular_expression(&input);
     let (output, _) = format_regular_expression(&ast);
     println!("output: {}", output);
+    let is_matched = match_regular_expression(&ast, &text);
+    println!("match: {}", is_matched);
 }
 
 fn print_usage(program: &str, opts: Options) {
@@ -270,11 +347,12 @@ fn main() {
         print_usage(&program, opts);
         return;
     }
-    let input = if matches.free.is_empty() {
+    if matches.free.len() != 2 {
         print_usage(&program, opts);
         panic!();
     } else {
-        matches.free[0].clone()
+        let pattern = matches.free[0].clone();
+        let text = matches.free[1].clone();
+        do_work(&pattern, &text)
     };
-    do_work(&input)
 }
