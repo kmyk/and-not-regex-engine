@@ -454,13 +454,14 @@ fn match_regular_expression(ast: &Box<AST>, text: &str) -> bool {
     return contains_epsilon_as_element(&ast);
 }
 
-fn do_work(input: &str, text: &str) {
+fn do_work(input: &str, text: &str) -> bool {
     println!("input regexp text:  {}", input);
     let ast = parse_regular_expression(&input);
     let (output, _) = format_regular_expression(&ast);
     println!("parsed text: {}", output);
     let is_matched = match_regular_expression(&ast, &text);
     println!("match: {}", is_matched);
+    return is_matched;
 }
 
 fn print_usage(program: &str, opts: Options) {
@@ -494,4 +495,37 @@ fn main() {
         let text = matches.free[1].clone();
         do_work(&pattern, &text)
     };
+}
+
+#[test]
+fn it_works() {
+    assert!(do_work("", ""));
+
+    assert!(do_work("[abc]", "a"));
+    assert!(!do_work("[abc]", "z"));
+    assert!(!do_work("[^abc]", "a"));
+    assert!(do_work("[^abc]", "z"));
+
+    assert!(do_work("a*", ""));
+    assert!(do_work("a*", "aaa"));
+    assert!(!do_work("a*", "b"));
+    assert!(!do_work("a*", "baa"));
+
+    assert!(do_work("aaabbb", "aaabbb"));
+    assert!(!do_work("aaabbb", "aaabb"));
+    assert!(!do_work("aaabbb", "aaabbbb"));
+
+    assert!(do_work("\\(regexp\\)\\~", "rege"));
+    assert!(do_work("\\(regexp\\)\\~", "regex"));
+    assert!(!do_work("\\(regexp\\)\\~", "regexp"));
+    assert!(do_work("\\(regexp\\)\\~", "regexpr"));
+    assert!(do_work("\\(regexp\\)\\~", "regexpre"));
+
+    assert!(!do_work("a\\&b\\&c\\|d\\|e\\|f\\&g", "a"));
+    assert!(!do_work("a\\&b\\&c\\|d\\|e\\|f\\&g", "b"));
+    assert!(!do_work("a\\&b\\&c\\|d\\|e\\|f\\&g", "c"));
+    assert!(do_work("a\\&b\\&c\\|d\\|e\\|f\\&g", "d"));
+    assert!(do_work("a\\&b\\&c\\|d\\|e\\|f\\&g", "e"));
+    assert!(!do_work("a\\&b\\&c\\|d\\|e\\|f\\&g", "f"));
+    assert!(!do_work("a\\&b\\&c\\|d\\|e\\|f\\&g", "g"));
 }
