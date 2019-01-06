@@ -1,15 +1,9 @@
-use std::str::Chars;
 use std::cmp::{max, min};
 use std::collections::HashSet;
 use std::mem::swap;
+use std::str::Chars;
 
-#[derive(Clone)]
-#[derive(Debug)]
-#[derive(Eq)]
-#[derive(Hash)]
-#[derive(Ord)]
-#[derive(PartialEq)]
-#[derive(PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CharClass {
     ranges: Vec<(u32, u32)>,
 }
@@ -37,9 +31,7 @@ impl CharClass {
 
     /// O(1)
     pub fn new() -> CharClass {
-        return CharClass {
-            ranges: Vec::new(),
-        };
+        return CharClass { ranges: Vec::new() };
     }
 
     /// O(1)
@@ -191,9 +183,16 @@ impl CharClass {
 
     // TODO: return as an Iter<(char, char)>
     pub fn iter(&self) -> Vec<(char, char)> {
-        return self.ranges.iter().map(|(l, r)| {
-            (std::char::from_u32(*l).unwrap(), std::char::from_u32(*r - 1).unwrap())
-        }).collect();
+        return self
+            .ranges
+            .iter()
+            .map(|(l, r)| {
+                (
+                    std::char::from_u32(*l).unwrap(),
+                    std::char::from_u32(*r - 1).unwrap(),
+                )
+            })
+            .collect();
     }
 }
 
@@ -203,7 +202,6 @@ impl ToString for CharClass {
 
         if len == 0 {
             return "".to_string();
-
         } else if len == 1 {
             let (l, _) = self.ranges.first().unwrap();
             let l = std::char::from_u32(*l).unwrap();
@@ -212,10 +210,8 @@ impl ToString for CharClass {
             } else {
                 return l.to_string();
             }
-
         } else if len == std::char::MAX as usize {
             return ".".to_string();
-
         } else {
             let is_complement = len > (std::char::MAX as usize) / 2;
             let mut has_close = false;
@@ -235,7 +231,12 @@ impl ToString for CharClass {
             };
             let mut s = String::new();
             let complement = self.complement();
-            let iter = (if is_complement { complement.ranges.iter() } else { self.ranges.iter() }).cloned();
+            let iter = (if is_complement {
+                complement.ranges.iter()
+            } else {
+                self.ranges.iter()
+            })
+            .cloned();
             for (l, r) in iter {
                 let mut l = l;
                 let mut r = r;
