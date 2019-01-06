@@ -170,19 +170,52 @@ impl CharClass {
 }
 
 impl ToString for CharClass {
-    /// TODO: fix a problem on '[', '^', '-' and ']'
     fn to_string(&self) -> String {
-        let mut s = String::new();
-        s.push('[');
-        for (l, r) in &self.ranges {
-            s.push(std::char::from_u32(*l).unwrap());
-            if r - l >= 2 {
-                s.push('-');
-                s.push(std::char::from_u32(*r - 1).unwrap());
+        let len = self.len();
+
+        if len == 0 {
+            return "".to_string();
+
+        } else if len == 1 {
+            let (l, _) = self.ranges.first().unwrap();
+            let l = std::char::from_u32(*l).unwrap();
+            if l == '*' || l == '[' || l == '\\' {
+                return "\\".to_string() + &l.to_string();
+            } else {
+                return l.to_string();
             }
+
+        } else if len == std::char::MAX as usize {
+            return ".".to_string();
+
+        } else if len < (std::char::MAX as usize) / 2 {
+            /// TODO: fix a problem on '^', '-' and ']'
+            let mut s = String::new();
+            s.push('[');
+            for (l, r) in &self.ranges {
+                s.push(std::char::from_u32(*l).unwrap());
+                if r - l >= 2 {
+                    s.push('-');
+                    s.push(std::char::from_u32(*r - 1).unwrap());
+                }
+            }
+            s.push(']');
+            return s;
+
+        } else {
+            /// TODO: fix a problem on '^', '-' and ']'
+            let mut s = String::new();
+            s.push_str("[^");
+            for (l, r) in &self.complement().ranges {
+                s.push(std::char::from_u32(*l).unwrap());
+                if r - l >= 2 {
+                    s.push('-');
+                    s.push(std::char::from_u32(*r - 1).unwrap());
+                }
+            }
+            s.push(']');
+            return s;
         }
-        s.push(']');
-        return s;
     }
 }
 
@@ -211,6 +244,7 @@ fn it_works() {
 
 
     let b = a.complement();
+    assert_eq!(b.to_string(), "[^a-cfx-z]");
     assert!(!b.contains('c'));
     assert!(b.contains('d'));
     assert!(!b.contains('f'));
