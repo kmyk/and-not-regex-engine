@@ -2,7 +2,9 @@ use std::cmp::{max, min};
 
 #[derive(Clone)]
 #[derive(Eq)]
+#[derive(Ord)]
 #[derive(PartialEq)]
+#[derive(PartialOrd)]
 pub struct CharClass {
     ranges: Vec<(u32, u32)>,
 }
@@ -35,6 +37,13 @@ impl CharClass {
         };
     }
 
+    /// O(1)
+    pub fn from_char(c: char) -> CharClass {
+        let mut cls = CharClass::new();
+        cls.insert(c);
+        return cls;
+    }
+
     /// O(n)
     pub fn insert(&mut self, value: char) {
         self.insert_range(value, value);
@@ -58,8 +67,8 @@ impl CharClass {
             }
         }
         self.push(l1, r1);
-        for (l2, r2) in stk.iter().rev() {
-            self.push(*l2, *r2);
+        for (l2, r2) in stk.iter().rev().cloned() {
+            self.push(l2, r2);
         }
     }
 
@@ -69,22 +78,22 @@ impl CharClass {
         let mut it1 = self.ranges.iter().peekable();
         let mut it2 = other.ranges.iter().peekable();
         loop {
-            match (it1.peek(), it2.peek()) {
+            match (it1.peek().cloned().cloned(), it2.peek().cloned().cloned()) {
                 (Some((l1, r1)), Some((l2, r2))) => {
                     if l1 < l2 {
-                        acc.push(*l1, *r1);
+                        acc.push(l1, r1);
                         it1.next();
                     } else {
-                        acc.push(*l2, *r2);
+                        acc.push(l2, r2);
                         it2.next();
                     }
                 }
                 (Some((l1, r1)), None) => {
-                    acc.push(*l1, *r1);
+                    acc.push(l1, r1);
                     it1.next();
                 }
                 (None, Some((l2, r2))) => {
-                    acc.push(*l2, *r2);
+                    acc.push(l2, r2);
                     it2.next();
                 }
                 (None, None) => {
@@ -95,6 +104,7 @@ impl CharClass {
         return acc;
     }
 
+    /// O(n)
     pub fn intersection(&self, other: &CharClass) -> CharClass {
         let mut acc = CharClass::new();
         let mut it1 = self.ranges.iter().peekable();
@@ -126,19 +136,25 @@ impl CharClass {
         return acc;
     }
 
+    /// O(n)
     pub fn complement(&self) -> CharClass {
         let mut acc = CharClass::new();
         let mut last = 0;
-        for (l, r) in &self.ranges {
-            if last < *l {
-                acc.push(last, *l);
+        for (l, r) in self.ranges.iter().cloned() {
+            if last < l {
+                acc.push(last, l);
             }
-            last = *r;
+            last = r;
         }
         if last < std::char::MAX as u32 {
             acc.push(last, std::char::MAX as u32);
         }
         return acc;
+    }
+
+    /// O(n)
+    pub fn subtract(&self, other: &CharClass) -> CharClass {
+        return self.intersection(&other.complement());
     }
 
     /// O(n)
@@ -158,14 +174,21 @@ impl CharClass {
     /// O(n)
     pub fn contains(&self, value: char) -> bool {
         let m = value as u32;
-        for (l, r) in &self.ranges {
-            if *l <= m && m < *r {
+        for (l, r) in self.ranges.iter().cloned() {
+            if l <= m && m < r {
                 return true;
-            } else if m < *l {
+            } else if m < l {
                 break;
             }
         }
         return false;
+    }
+
+    // TODO: return as an Iter<(char, char)>
+    pub fn iter(&self) -> Vec<(char, char)> {
+        return self.ranges.iter().map(|(l, r)| {
+            (std::char::from_u32(*l).unwrap(), std::char::from_u32(*r - 1).unwrap())
+        }).collect();
     }
 }
 
