@@ -281,6 +281,43 @@ fn is_universe(ast: &Box<AST>) -> Option<bool> {
     }
 }
 
+fn is_epsilon(ast: &Box<AST>) -> Option<bool> {
+    match &**ast {
+        AST::Empty => Some(false),
+        AST::Universe => Some(false),
+        AST::Epsilon => Some(true),
+        AST::Literal(cls) => Some(false),
+        AST::Star(a) => match (is_empty_set(a), is_epsilon(a)) {
+            (Some(true), _) => Some(true),
+            (_, Some(true)) => Some(true),
+            (Some(false), Some(false)) => Some(false),
+            _ => None,
+        },
+        AST::Plus(a) => is_epsilon(a),
+        AST::Question(a) => match (is_empty_set(a), is_epsilon(a)) {
+            (Some(true), _) => Some(true),
+            (_, Some(true)) => Some(true),
+            (Some(false), Some(false)) => Some(false),
+            _ => None,
+        },
+        AST::Not(a) => None,
+        AST::Seq(a, b) => match (is_epsilon(a), is_epsilon(b)) {
+            (Some(true), Some(true)) => Some(true),
+            (Some(false), _) => Some(false),
+            (_, Some(false)) => Some(false),
+            _ => None,
+        },
+        AST::And(a, b) => match (is_epsilon(a), is_epsilon(b)) {
+            (Some(true), Some(true)) => Some(true),
+            _ => None,
+        },
+        AST::Or(a, b) => match (is_epsilon(a), is_epsilon(b)) {
+            (Some(true), Some(true)) => Some(true),
+            _ => None,
+        },
+    }
+}
+
 fn simplify_regular_expression(ast: Box<AST>) -> Box<AST> {
     if is_empty_set(&ast) == Some(true) {
         return Box::new(AST::Empty);
@@ -302,6 +339,10 @@ fn simplify_regular_expression(ast: Box<AST>) -> Box<AST> {
                 Box::new(AST::Empty)
             } else if is_universe(&a) == Some(true) {
                 Box::new(AST::Universe)
+            } else if is_epsilon(&a) == Some(true) {
+                simplify_regular_expression(b)
+            } else if is_epsilon(&b) == Some(true) {
+                simplify_regular_expression(a)
             } else {
                 Box::new(AST::Seq(
                     simplify_regular_expression(a),
