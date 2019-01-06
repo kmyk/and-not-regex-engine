@@ -7,6 +7,8 @@ use std::iter::Peekable;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+mod char_class;
+
 /// Full (Regular) Regular Expression
 #[derive(Clone)]
 enum FRRE {
