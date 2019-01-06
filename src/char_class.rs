@@ -1,8 +1,10 @@
+use std::str::Chars;
 use std::cmp::{max, min};
 use std::collections::HashSet;
 use std::mem::swap;
 
 #[derive(Clone)]
+#[derive(Debug)]
 #[derive(Eq)]
 #[derive(Hash)]
 #[derive(Ord)]
@@ -282,6 +284,63 @@ impl ToString for CharClass {
             return t;
         }
     }
+}
+
+/// assume '[' is read and ignore remaining chars
+pub fn parse_char_class(chars: &mut Chars) -> Result<CharClass, &'static str> {
+    let mut is_complemented = false;
+    let mut s = Vec::new();
+    match chars.next() {
+        None => {
+            return Err("Unmatched [");
+        }
+        Some('^') => {
+            is_complemented = true;
+            match chars.next() {
+                None => {
+                    return Err("Unmatched [^");
+                }
+                Some(c) => {
+                    s.push(c);
+                }
+            }
+        }
+        Some(c) => {
+            s.push(c);
+        }
+    }
+    loop {
+        match chars.next() {
+            None => {
+                return Err("Unmatched [ or [^");
+            }
+            Some(']') => {
+                break;
+            }
+            Some(c) => {
+                s.push(c);
+            }
+        }
+    }
+    let mut cls = CharClass::new();
+    let mut i: usize = 0;
+    while i < s.len() {
+        if i + 2 < s.len() && s[i + 1] == '-' {
+            if s[i] > s[i + 2] {
+                return Err("Invalid range end");
+            } else {
+                cls.insert_range(s[i], s[i + 2]);
+                i += 3;
+            }
+        } else {
+            cls.insert(s[i]);
+            i += 1;
+        }
+    }
+    if is_complemented {
+        cls = cls.complement();
+    }
+    return Ok(cls);
 }
 
 pub fn discriminate(clss: &Vec<CharClass>) -> HashSet<CharClass> {

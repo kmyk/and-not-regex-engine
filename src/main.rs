@@ -1,98 +1,153 @@
+#![feature(rust_2018_preview)]
+#![feature(uniform_paths)]
+
 extern crate getopts;
 use getopts::Options;
 use std::env;
 use std::mem::swap;
 use std::str::Chars;
 use std::iter::Peekable;
-use std::collections::HashMap;
-use std::collections::HashSet;
 
 mod char_class;
+use char_class::CharClass;
 
-/// Full (Regular) Regular Expression
 #[derive(Clone)]
-enum FRRE {
+enum AST {
+    Empty,
     Epsilon,
-    Letter(char),
-    // Class(CharClass),
-    Dot,
-    Star(Box<FRRE>),
-    // Plus(Box<FRRE>),
-    // Question(Box<FRRE>),
-    Not(Box<FRRE>),
-    Seq(Box<FRRE>, Box<FRRE>),
-    And(Box<FRRE>, Box<FRRE>),
-    Or(Box<FRRE>, Box<FRRE>),
-}
-
-/// (Regular part of) Basic Regular Expression
-#[derive(Clone)]
-enum RBRE {
-    Epsilon,
-    Letter(char),
-    Class(char_class::CharClass),
-    Dot,
-    Star(Box<RBRE>),
-    Plus(Box<RBRE>),
-    Question(Box<RBRE>),
-    Seq(Box<RBRE>, Box<RBRE>),
-    Or(Box<RBRE>, Box<RBRE>),
+    Literal(CharClass),
+    Star(Box<AST>),
+    Plus(Box<AST>),
+    Question(Box<AST>),
+    Not(Box<AST>),
+    Seq(Box<AST>, Box<AST>),
+    And(Box<AST>, Box<AST>),
+    Or(Box<AST>, Box<AST>),
 }
 
 #[derive(Clone)]
-struct DFA {
+#[derive(Debug)]
+#[derive(Eq)]
+#[derive(PartialEq)]
+enum Token {
+    Bare(char),
+    Quoted(char),
+    Class(CharClass),
 }
 
-#[derive(Clone)]
-struct NFA {
+struct TokenSeq<'a> {
+    chars: &'a mut Chars<'a>,
 }
 
-fn parse_regular_expression_atom(s: &mut Peekable<Chars>) -> Box<FRRE> {
-    match s.peek() {
-        None => {
-            return Box::new(FRRE::Epsilon);
+impl<'a> Iterator for TokenSeq<'a> {
+    type Item = Token;
+    fn next(&mut self) -> Option<Token> {
+        match self.chars.next() {
+            None => {
+                return None;
+            }
+            Some('\\') => {
+                match self.chars.next() {
+                    None => {
+                        panic!("Trailing backslash");
+                    }
+                    Some(c) => {
+                        return Some(Token::Quoted(c));
+                    }
+                }
+            }
+            Some('[') => {
+                match char_class::parse_char_class(&mut self.chars) {
+                    Ok(cls) => {
+                        return Some(Token::Class(cls));
+                    }
+                    Err(msg) => {
+                        panic!(msg);
+                    }
+                }
+            }
+            Some(c) => {
+                return Some(Token::Bare(c));
+            }
         }
-        Some(c) if c == &')' || c == &'*' || c == &'&' || c == &'|' => {
+    }
+}
+
+fn parse_regular_expression_literal(tokens: &mut Peekable<TokenSeq>) -> Box<AST> {
+    let token = tokens.peek().cloned();
+    let mut a = match token {
+        None => {
+            return Box::new(AST::Epsilon);
+        }
+        Some(Token::Bare('*')) => {
+            // grep(1) says this is OK
+            tokens.next();
+            Box::new(AST::Literal(CharClass::from_char('*')))
+        }
+        Some(Token::Bare('.')) => {
+            tokens.next();
+            Box::new(AST::Literal(CharClass::new().complement()))
+        }
+        Some(Token::Bare(c)) => {
+            tokens.next();
+            Box::new(AST::Literal(CharClass::from_char(c)))
+        }
+        Some(Token::Quoted(c)) if c == ')' => {
+            panic!("Unmatched \\)");
+        }
+        Some(Token::Quoted(c)) if c == '+' || c == '?' => {
+            // grep(1) says this is OK
+            tokens.next();
+            Box::new(AST::Literal(CharClass::from_char(c)))
+        }
+        Some(Token::Quoted(c)) if c == '&' || c == '|' => {
             panic!();
         }
-        _ => {}
-    }
-    let mut a = match s.next().unwrap() {
-        '(' => {
-            let b = parse_regular_expression_root(s);
-            assert!(s.next() == Some(')'));
+        Some(Token::Quoted('(')) => {
+            tokens.next();
+            let b = parse_regular_expression_root(tokens);
+            assert_eq!(tokens.next(), Some(Token::Quoted(')')));
             b
         }
-        '.' => {
-            Box::new(FRRE::Dot)
+        Some(Token::Quoted(c)) => {
+            tokens.next();
+            Box::new(AST::Literal(CharClass::from_char(c)))
         }
-        c => {
-            Box::new(FRRE::Letter(c))
+        Some(Token::Class(cls)) => {
+            tokens.next();
+            Box::new(AST::Literal(cls))
         }
     };
     loop {
-        if s.peek() == Some(&'*') {
-            a = Box::new(FRRE::Star(a));
-            s.next();
-            continue;
+        match tokens.peek() {
+            Some(Token::Bare('*')) => {
+                a = Box::new(AST::Star(a));
+            }
+            Some(Token::Quoted('+')) => {
+                a = Box::new(AST::Plus(a));
+            }
+            Some(Token::Quoted('?')) => {
+                a = Box::new(AST::Question(a));
+            }
+            Some(Token::Quoted('~')) => {
+                a = Box::new(AST::Not(a));
+            }
+            _ => {
+                break;
+            }
         }
-        if s.peek() == Some(&'~') {
-            a = Box::new(FRRE::Not(a));
-            s.next();
-            continue;
-        }
-        break;
+        tokens.next();
     }
     return a;
 }
 
-fn parse_regular_expression_root(s: &mut Peekable<Chars>) -> Box<FRRE>  {
-    fn bump(a: &mut Option<Box<FRRE>>, b: &mut Option<Box<FRRE>>, op: fn(Box<FRRE>, Box<FRRE>) -> FRRE) {
+fn parse_regular_expression_root(tokens: &mut Peekable<TokenSeq>) -> Box<AST>  {
+    fn bump(a: &mut Option<Box<AST>>, b: &mut Option<Box<AST>>, op: fn(Box<AST>, Box<AST>) -> AST) {
         let mut a1 = None;
         let mut b1 = None;
         swap(&mut a1, a);
         swap(&mut b1, b);
-        let b2 = b1.unwrap_or(Box::new(FRRE::Epsilon));
+        let b2 = b1.unwrap_or(Box::new(AST::Epsilon));
         a1 = Some(
             match a1 {
                 None => { b2 }
@@ -105,135 +160,82 @@ fn parse_regular_expression_root(s: &mut Peekable<Chars>) -> Box<FRRE>  {
     let mut b = None;
     let mut c = None;
     loop {
-        match s.peek() {
-            None | Some(')') => {
+        match tokens.peek() {
+            None | Some(Token::Bare(')')) => {
                 break;
             }
-            Some('|') => {
-                bump(&mut b, &mut c, FRRE::And);
-                bump(&mut a, &mut b, FRRE::Or);
-                s.next();
+            Some(Token::Quoted('|')) => {
+                bump(&mut b, &mut c, AST::And);
+                bump(&mut a, &mut b, AST::Or);
+                tokens.next();
             }
-            Some('&') => {
-                bump(&mut b, &mut c, FRRE::And);
-                s.next();
+            Some(Token::Quoted('&')) => {
+                bump(&mut b, &mut c, AST::And);
+                tokens.next();
             }
             Some(_) => {
-                let d = parse_regular_expression_atom(s);
-                bump(&mut c, &mut Some(d), FRRE::Seq);
+                let d = parse_regular_expression_literal(tokens);
+                bump(&mut c, &mut Some(d), AST::Seq);
             }
         }
     }
-    bump(&mut b, &mut c, FRRE::And);
-    bump(&mut a, &mut b, FRRE::Or);
+    bump(&mut b, &mut c, AST::And);
+    bump(&mut a, &mut b, AST::Or);
     return a.unwrap();
 }
 
-fn parse_regular_expression(input: &str) -> Box<FRRE> {
-    let mut s = input.chars().peekable();
-    let a = parse_regular_expression_root(&mut s);
-    assert!(s.peek().is_none());
+fn parse_regular_expression(input: &str) -> Box<AST> {
+    let mut chars = input.chars();
+    let mut tokens = (TokenSeq { chars: &mut chars }).peekable();
+    let a = parse_regular_expression_root(&mut tokens);
+    assert!(tokens.peek().is_none());
     return a;
 }
 
-fn simplify_regular_expression(ast: &Box<FRRE>) -> Box<RBRE> {
-    panic!();
-}
-
-fn compile_nondeterministic_finite_automaton(ast: &Box<FRRE>) -> NFA {
-    panic!();
-}
-
-fn compile_deterministic_finite_automaton(nfa: &NFA) -> DFA {
-    panic!();
-}
-
-fn minimize_deterministic_finite_automaton(dfa: &DFA) -> DFA {
-    panic!();
-}
-
-fn decompile_deterministic_finite_automaton(dfa: &DFA) -> Box<FRRE> {
-    panic!();
-}
-
-fn format_regular_expression(ast: &Box<FRRE>) -> (String, i8) {
-    fn paren(s: String, x: i8, y: i8) -> String {
-        if x <= y { s } else { "(".to_string() + s.as_str() + ")" }
-    }
-    match &**ast {
-        FRRE::Epsilon => {
-            ("".to_string(), 0)
-        }
-        FRRE::Letter(c) => {
-            (c.to_string(), 0)
-        }
-        FRRE::Dot => {
-            (".".to_string(), 0)
-        }
-        FRRE::Star(a) => {
-            let (s, x) = format_regular_expression(&a);
-            (paren(s, x, 0) + "*", 0)
-        }
-        FRRE::Not(a) => {
-            let (s, x) = format_regular_expression(&a);
-            (paren(s, x, 0) + "~", 0)
-        }
-        FRRE::Seq(a, b) => {
-            let (s, x) = format_regular_expression(&a);
-            let (t, y) = format_regular_expression(&b);
-            (paren(s, x, 1) + paren(t, y, 1).as_str(), 1)
-        }
-        FRRE::And(a, b) => {
-            let (s, x) = format_regular_expression(&a);
-            let (t, y) = format_regular_expression(&b);
-            (paren(s, x, 2) + "&" + paren(t, y, 2).as_str(), 2)
-        }
-        FRRE::Or(a, b) => {
-            let (s, x) = format_regular_expression(&a);
-            let (t, y) = format_regular_expression(&b);
-            (paren(s, x, 3) + "|" + paren(t, y, 3).as_str(), 3)
-        }
-    }
-}
-
-fn format_basic_regular_expression(ast: &Box<RBRE>) -> (String, i8) {
+fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
     fn paren(s: String, x: i8, y: i8) -> String {
         if x <= y { s } else { "\\(".to_string() + s.as_str() + "\\)" }
     }
     match &**ast {
-        RBRE::Epsilon => {
-            ("".to_string(), 0)
+        AST::Empty => {
+            ("\\_".to_string(), 1)
         }
-        RBRE::Letter(c) => {
-            (c.to_string(), 0)
+        AST::Epsilon => {
+            ("".to_string(), 1)
         }
-        RBRE::Class(cls) => {
+        AST::Literal(cls) => {
             (cls.to_string(), 0)
         }
-        RBRE::Dot => {
-            (".".to_string(), 0)
-        }
-        RBRE::Star(a) => {
-            let (s, x) = format_basic_regular_expression(&a);
+        AST::Star(a) => {
+            let (s, x) = format_regular_expression(&a);
             (paren(s, x, 0) + "*", 0)
         }
-        RBRE::Plus(a) => {
-            let (s, x) = format_basic_regular_expression(&a);
+        AST::Plus(a) => {
+            let (s, x) = format_regular_expression(&a);
             (paren(s, x, 0) + "\\+", 0)
         }
-        RBRE::Question(a) => {
-            let (s, x) = format_basic_regular_expression(&a);
+        AST::Question(a) => {
+            let (s, x) = format_regular_expression(&a);
             (paren(s, x, 0) + "\\?", 0)
         }
-        RBRE::Seq(a, b) => {
-            let (s, x) = format_basic_regular_expression(&a);
-            let (t, y) = format_basic_regular_expression(&b);
+        AST::Not(a) => {
+            let (s, x) = format_regular_expression(&a);
+            (paren(s, x, 0) + "\\~", 0)
+        }
+        AST::Seq(a, b) => {
+            let (s, x) = format_regular_expression(&a);
+            let (t, y) = format_regular_expression(&b);
             (paren(s, x, 1) + paren(t, y, 1).as_str(), 1)
         }
-        RBRE::Or(a, b) => {
-            let (s, x) = format_basic_regular_expression(&a);
-            let (t, y) = format_basic_regular_expression(&b);
-            (paren(s, x, 2) + "\\|" + paren(t, y, 2).as_str(), 2)
+        AST::And(a, b) => {
+            let (s, x) = format_regular_expression(&a);
+            let (t, y) = format_regular_expression(&b);
+            (paren(s, x, 2) + "\\&" + paren(t, y, 2).as_str(), 2)
+        }
+        AST::Or(a, b) => {
+            let (s, x) = format_regular_expression(&a);
+            let (t, y) = format_regular_expression(&b);
+            (paren(s, x, 3) + "\\|" + paren(t, y, 3).as_str(), 3)
         }
     }
 }
@@ -241,11 +243,6 @@ fn format_basic_regular_expression(ast: &Box<RBRE>) -> (String, i8) {
 fn do_work(input: &str) {
     println!("input:  {}", input);
     let ast = parse_regular_expression(&input);
-    // let ast = simplify_regular_expression(&ast);
-    // let nfa = compile_nondeterministic_finite_automaton(&ast);
-    // let dfa = compile_deterministic_finite_automaton(&nfa);
-    // let dfa = minimize_deterministic_finite_automaton(&dfa);
-    // let ast = decompile_deterministic_finite_automaton(&dfa);
     let (output, _) = format_regular_expression(&ast);
     println!("output: {}", output);
 }
