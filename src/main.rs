@@ -30,7 +30,7 @@ enum FRRE {
 enum RBRE {
     Epsilon,
     Letter(char),
-    // Class(CharClass),
+    Class(char_class::CharClass),
     Dot,
     Star(Box<RBRE>),
     Plus(Box<RBRE>),
@@ -136,6 +136,10 @@ fn parse_regular_expression(input: &str) -> Box<FRRE> {
     return a;
 }
 
+fn simplify_regular_expression(ast: &Box<FRRE>) -> Box<RBRE> {
+    panic!();
+}
+
 fn compile_nondeterministic_finite_automaton(ast: &Box<FRRE>) -> NFA {
     panic!();
 }
@@ -192,9 +196,52 @@ fn format_regular_expression(ast: &Box<FRRE>) -> (String, i8) {
     }
 }
 
+fn format_basic_regular_expression(ast: &Box<RBRE>) -> (String, i8) {
+    fn paren(s: String, x: i8, y: i8) -> String {
+        if x <= y { s } else { "\\(".to_string() + s.as_str() + "\\)" }
+    }
+    match &**ast {
+        RBRE::Epsilon => {
+            ("".to_string(), 0)
+        }
+        RBRE::Letter(c) => {
+            (c.to_string(), 0)
+        }
+        RBRE::Class(cls) => {
+            (cls.to_string(), 0)
+        }
+        RBRE::Dot => {
+            (".".to_string(), 0)
+        }
+        RBRE::Star(a) => {
+            let (s, x) = format_basic_regular_expression(&a);
+            (paren(s, x, 0) + "*", 0)
+        }
+        RBRE::Plus(a) => {
+            let (s, x) = format_basic_regular_expression(&a);
+            (paren(s, x, 0) + "\\+", 0)
+        }
+        RBRE::Question(a) => {
+            let (s, x) = format_basic_regular_expression(&a);
+            (paren(s, x, 0) + "\\?", 0)
+        }
+        RBRE::Seq(a, b) => {
+            let (s, x) = format_basic_regular_expression(&a);
+            let (t, y) = format_basic_regular_expression(&b);
+            (paren(s, x, 1) + paren(t, y, 1).as_str(), 1)
+        }
+        RBRE::Or(a, b) => {
+            let (s, x) = format_basic_regular_expression(&a);
+            let (t, y) = format_basic_regular_expression(&b);
+            (paren(s, x, 2) + "\\|" + paren(t, y, 2).as_str(), 2)
+        }
+    }
+}
+
 fn do_work(input: &str) {
     println!("input:  {}", input);
     let ast = parse_regular_expression(&input);
+    // let ast = simplify_regular_expression(&ast);
     // let nfa = compile_nondeterministic_finite_automaton(&ast);
     // let dfa = compile_deterministic_finite_automaton(&nfa);
     // let dfa = minimize_deterministic_finite_automaton(&dfa);
