@@ -185,8 +185,8 @@ fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
         }
     }
     match &**ast {
-        AST::Empty => ("\\0".to_string(), 0),
-        AST::Universe => ("\\1".to_string(), 0),
+        AST::Empty => ("0&1".to_string(), 2),
+        AST::Universe => (".*".to_string(), 1),
         AST::Epsilon => ("".to_string(), 1),
         AST::Literal(cls) => (cls.to_string(), 0),
         AST::Star(a) => {
@@ -449,16 +449,16 @@ fn match_regular_expression(ast: &Box<AST>, text: &str) -> bool {
         ast = differentiate_regular_expression(ast, c);
         ast = simplify_regular_expression(ast);
         let (s, _) = format_regular_expression(&ast);
-        println!("differentiated: {}", s);
+        println!("d({}): {}", c, s);
     }
     return contains_epsilon_as_element(&ast);
 }
 
 fn do_work(input: &str, text: &str) {
-    println!("input:  {}", input);
+    println!("input regexp text:  {}", input);
     let ast = parse_regular_expression(&input);
     let (output, _) = format_regular_expression(&ast);
-    println!("output: {}", output);
+    println!("parsed text: {}", output);
     let is_matched = match_regular_expression(&ast, &text);
     println!("match: {}", is_matched);
 }
