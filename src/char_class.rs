@@ -168,6 +168,11 @@ impl CharClass {
         return self.ranges.is_empty();
     }
 
+    /// O(1)
+    pub fn is_universe(&self) -> bool {
+        return self.ranges.len() == 1 && self.len() == std::char::MAX as usize;
+    }
+
     /// O(n)
     pub fn contains(&self, value: char) -> bool {
         let m = value as u32;

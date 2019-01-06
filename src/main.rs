@@ -223,6 +223,123 @@ fn format_regular_expression(ast: &Box<AST>) -> (String, i8) {
     }
 }
 
+fn is_empty_set(ast: &Box<AST>) -> Option<bool> {
+    match &**ast {
+        AST::Empty => Some(true),
+        AST::Universe => Some(false),
+        AST::Epsilon => Some(false),
+        AST::Literal(cls) => Some(cls.is_empty()),
+        AST::Star(a) => Some(false),
+        AST::Plus(a) => is_empty_set(a),
+        AST::Question(a) => Some(false),
+        AST::Not(a) => is_universe(a),
+        AST::Seq(a, b) => match (is_empty_set(a), is_empty_set(b)) {
+            (Some(true), _) => Some(true),
+            (_, Some(true)) => Some(true),
+            (Some(false), Some(false)) => Some(false),
+            _ => None,
+        },
+        AST::And(a, b) => match (is_empty_set(a), is_empty_set(b)) {
+            (Some(true), _) => Some(true),
+            (_, Some(true)) => Some(true),
+            _ => None,
+        },
+        AST::Or(a, b) => match (is_empty_set(a), is_empty_set(b)) {
+            (Some(true), Some(true)) => Some(true),
+            (_, Some(false)) => Some(false),
+            (Some(false), _) => Some(false),
+            _ => None,
+        },
+    }
+}
+
+fn is_universe(ast: &Box<AST>) -> Option<bool> {
+    match &**ast {
+        AST::Empty => Some(false),
+        AST::Universe => Some(true),
+        AST::Epsilon => Some(false),
+        AST::Literal(cls) => Some(false),
+        AST::Star(a) => None,
+        AST::Plus(a) => None,
+        AST::Question(a) => None,
+        AST::Not(a) => is_empty_set(a),
+        AST::Seq(a, b) => match (is_universe(a), is_universe(b)) {
+            (Some(true), Some(true)) => Some(true),
+            _ => None,
+        },
+        AST::And(a, b) => match (is_universe(a), is_universe(b)) {
+            (Some(true), Some(true)) => Some(true),
+            (Some(false), _) => Some(false),
+            (_, Some(false)) => Some(false),
+            _ => None,
+        },
+        AST::Or(a, b) => match (is_universe(a), is_universe(b)) {
+            (Some(true), _) => Some(true),
+            (_, Some(true)) => Some(true),
+            _ => None,
+        },
+    }
+}
+
+fn simplify_regular_expression(ast: Box<AST>) -> Box<AST> {
+    if is_empty_set(&ast) == Some(true) {
+        return Box::new(AST::Empty);
+    }
+    if is_universe(&ast) == Some(true) {
+        return Box::new(AST::Universe);
+    }
+    match *ast {
+        AST::Empty => Box::new(AST::Empty),
+        AST::Universe => Box::new(AST::Universe),
+        AST::Epsilon => Box::new(AST::Epsilon),
+        AST::Literal(cls) => Box::new(AST::Literal(cls)),
+        AST::Star(a) => Box::new(AST::Star(simplify_regular_expression(a))),
+        AST::Plus(a) => Box::new(AST::Plus(simplify_regular_expression(a))),
+        AST::Question(a) => Box::new(AST::Question(simplify_regular_expression(a))),
+        AST::Not(a) => Box::new(AST::Not(simplify_regular_expression(a))),
+        AST::Seq(a, b) => {
+            if is_empty_set(&a) == Some(true) || is_empty_set(&b) == Some(true) {
+                Box::new(AST::Empty)
+            } else if is_universe(&a) == Some(true) {
+                Box::new(AST::Universe)
+            } else {
+                Box::new(AST::Seq(
+                    simplify_regular_expression(a),
+                    simplify_regular_expression(b),
+                ))
+            }
+        }
+        AST::And(a, b) => {
+            if is_empty_set(&a) == Some(true) || is_empty_set(&b) == Some(true) {
+                Box::new(AST::Empty)
+            } else if is_universe(&a) == Some(true) {
+                simplify_regular_expression(b)
+            } else if is_universe(&b) == Some(true) {
+                simplify_regular_expression(a)
+            } else {
+                Box::new(AST::And(
+                    simplify_regular_expression(a),
+                    simplify_regular_expression(b),
+                ))
+            }
+        }
+        AST::Or(a, b) => {
+            if is_universe(&a) == Some(true) || is_universe(&b) == Some(true) {
+                Box::new(AST::Universe)
+            } else if is_empty_set(&a) == Some(true) {
+                simplify_regular_expression(b)
+            } else if is_empty_set(&b) == Some(true) {
+                simplify_regular_expression(a)
+            } else {
+                Box::new(AST::Or(
+                    simplify_regular_expression(a),
+                    simplify_regular_expression(b),
+                ))
+            }
+        }
+    }
+}
+
 fn contains_epsilon_as_element(ast: &Box<AST>) -> bool {
     match &**ast {
         AST::Empty => false,
@@ -289,6 +406,7 @@ fn match_regular_expression(ast: &Box<AST>, text: &str) -> bool {
     let mut ast: Box<AST> = ast.clone();
     for c in text.chars() {
         ast = differentiate_regular_expression(ast, c);
+        ast = simplify_regular_expression(ast);
         let (s, _) = format_regular_expression(&ast);
         println!("differentiated: {}", s);
     }
